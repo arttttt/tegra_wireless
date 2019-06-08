@@ -23,14 +23,14 @@
 
 #define NV_TIMESTAMP()		\
 				do {	\
-					struct timeval now;	\
+					struct timespec64 now;	\
 					struct tm date_time;	\
-					do_gettimeofday(&now);		\
-					time_to_tm(now.tv_sec, -sys_tz.tz_minuteswest * 60, &date_time);	\
+					ktime_get_real_ts64(&now);		\
+					time64_to_tm(now.tv_sec, -sys_tz.tz_minuteswest * 60, &date_time);	\
 					pr_info("[%.2d-%.2d %.2d:%.2d:%.2d.%u] %s: ",	\
 						date_time.tm_mon+1, date_time.tm_mday, date_time.tm_hour,	\
 						date_time.tm_min, date_time.tm_sec,	\
-						(unsigned int)(now.tv_usec/1000), __func__);	\
+						(unsigned int)(now.tv_nsec/NSEC_PER_USEC/1000), __func__);	\
 				} while (0)
 
 #define DHD_NV_PRINT(args) 	\

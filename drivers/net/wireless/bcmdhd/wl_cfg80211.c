@@ -8968,8 +8968,8 @@ static s32 wl_inform_single_bss(struct bcm_cfg80211 *cfg, struct wl_bss_info *bi
 	signal = notif_bss_info->rssi * 100;
 	if (!mgmt->u.probe_resp.timestamp) {
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 39))
-		struct timespec ts;
-		get_monotonic_boottime(&ts);
+		struct timespec64 ts;
+		ktime_get_boottime_ts64(&ts);
 		mgmt->u.probe_resp.timestamp = ((u64)ts.tv_sec*1000000)
 				+ ts.tv_nsec / 1000;
 #else
@@ -10055,7 +10055,7 @@ wl_bss_roaming_done(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	info.req_ie_len = conn_info->req_ie_len;
 	info.resp_ie = conn_info->resp_ie;
 	info.resp_ie_len = conn_info->resp_ie_len;
-	info.authorized = false;
+	//info.authorized = false;
 
 	cfg80211_roamed(ndev, &info, GFP_KERNEL);
 #else
@@ -11096,10 +11096,10 @@ static void wl_destroy_event_handler(struct bcm_cfg80211 *cfg)
 		PROC_STOP(&cfg->event_tsk);
 }
 
-static void wl_scan_timeout(unsigned long data)
+static void wl_scan_timeout(struct timer_list *timer)
 {
 	wl_event_msg_t msg;
-	struct bcm_cfg80211 *cfg = (struct bcm_cfg80211 *)data;
+	struct bcm_cfg80211 *cfg = from_timer(cfg, timer, scan_timeout);
 	struct wireless_dev *wdev;
 	struct net_device *ndev;
 	u32 connected;
@@ -12098,9 +12098,7 @@ static s32 wl_init_scan(struct bcm_cfg80211 *cfg)
 	wl_escan_init_sync_id(cfg);
 
 	/* Init scan_timeout timer */
-	init_timer(&cfg->scan_timeout);
-	cfg->scan_timeout.data = (unsigned long) cfg;
-	cfg->scan_timeout.function = wl_scan_timeout;
+	timer_setup(&cfg->scan_timeout, wl_scan_timeout, 0);
 
 	return err;
 }
