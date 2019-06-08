@@ -1669,8 +1669,8 @@ wl_cfgp2p_listen_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 
 	if (wl_get_p2p_status(cfg, LISTEN_EXPIRED) == 0) {
 		wl_set_p2p_status(cfg, LISTEN_EXPIRED);
-		if (timer_pending(&cfg->p2p->listen_timer)) {
-			del_timer_sync(&cfg->p2p->listen_timer);
+		if (timer_pending(&cfg->listen_timer)) {
+			del_timer_sync(&cfg->listen_timer);
 		}
 
 		if (cfg->afx_hdl->is_listen == TRUE &&
@@ -1742,18 +1742,18 @@ wl_cfgp2p_listen_complete(struct bcm_cfg80211 *cfg, bcm_struct_cfgdev *cfgdev,
 void
 wl_cfgp2p_listen_expired(struct timer_list *timer)
 {
-//	wl_event_msg_t msg;
-//	struct bcm_cfg80211 *cfg = from_timer(cfg, timer, p2p.listen_timer);
-//	CFGP2P_DBG((" Enter\n"));
-//	bzero(&msg, sizeof(wl_event_msg_t));
-//	msg.event_type =  hton32(WLC_E_P2P_DISC_LISTEN_COMPLETE);
-//#if defined(WL_ENABLE_P2P_IF)
-//	wl_cfg80211_event(cfg->p2p_net ? cfg->p2p_net :
-//		wl_to_p2p_bss_ndev(cfg, P2PAPI_BSSCFG_DEVICE), &msg, NULL);
-//#else
-//	wl_cfg80211_event(wl_to_p2p_bss_ndev(cfg, P2PAPI_BSSCFG_DEVICE), &msg,
-//		NULL);
-//#endif /* WL_ENABLE_P2P_IF */
+	wl_event_msg_t msg;
+	struct bcm_cfg80211 *cfg = from_timer(cfg, timer, listen_timer);
+	CFGP2P_DBG((" Enter\n"));
+	bzero(&msg, sizeof(wl_event_msg_t));
+	msg.event_type =  hton32(WLC_E_P2P_DISC_LISTEN_COMPLETE);
+#if defined(WL_ENABLE_P2P_IF)
+	wl_cfg80211_event(cfg->p2p_net ? cfg->p2p_net :
+		wl_to_p2p_bss_ndev(cfg, P2PAPI_BSSCFG_DEVICE), &msg, NULL);
+#else
+	wl_cfg80211_event(wl_to_p2p_bss_ndev(cfg, P2PAPI_BSSCFG_DEVICE), &msg,
+		NULL);
+#endif /* WL_ENABLE_P2P_IF */
 }
 /*
  *  Routine for cancelling the P2P LISTEN
@@ -1766,8 +1766,8 @@ wl_cfgp2p_cancel_listen(struct bcm_cfg80211 *cfg, struct net_device *ndev,
 	/* Irrespective of whether timer is running or not, reset
 	 * the LISTEN state.
 	 */
-	if (timer_pending(&cfg->p2p->listen_timer)) {
-		del_timer_sync(&cfg->p2p->listen_timer);
+	if (timer_pending(&cfg->listen_timer)) {
+		del_timer_sync(&cfg->listen_timer);
 		if (notify) {
 #if defined(WL_CFG80211_P2P_DEV_IF)
 #ifdef P2PONEINT
@@ -1814,7 +1814,7 @@ wl_cfgp2p_discover_listen(struct bcm_cfg80211 *cfg, s32 channel, u32 duration_ms
 		ret = BCME_NOTREADY;
 		goto exit;
 	}
-	if (timer_pending(&cfg->p2p->listen_timer)) {
+	if (timer_pending(&cfg->listen_timer)) {
 		CFGP2P_DBG(("previous LISTEN is not completed yet\n"));
 		goto exit;
 
@@ -1829,7 +1829,7 @@ wl_cfgp2p_discover_listen(struct bcm_cfg80211 *cfg, s32 channel, u32 duration_ms
 
 	ret = wl_cfgp2p_set_p2p_mode(cfg, WL_P2P_DISC_ST_LISTEN, channel, (u16) duration_ms,
 	            wl_to_p2p_bss_bssidx(cfg, P2PAPI_BSSCFG_DEVICE));
-	_timer = &cfg->p2p->listen_timer;
+	_timer = &cfg->listen_timer;
 
 	/*  We will wait to receive WLC_E_P2P_DISC_LISTEN_COMPLETE from dongle ,
 	 *  otherwise we will wait up to duration_ms + 100ms + duration / 10

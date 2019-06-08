@@ -90,7 +90,6 @@ struct p2p_info {
 	struct ether_addr dev_addr;
 	struct ether_addr int_addr;
 	struct p2p_bss bss[P2PAPI_BSSCFG_MAX];
-	struct timer_list listen_timer;
 	wl_p2p_sched_t noa;
 	wl_p2p_ops_t ops;
 	wlc_ssid_t ssid;
