@@ -1,0 +1,157 @@
+From a49abeefe10ece407ee70a86fb51136bd8f059dd Mon Sep 17 00:00:00 2001
+From: Narayan Reddy <narayanr@nvidia.com>
+Date: Mon, 2 May 2016 09:49:58 +0530
+Subject: [PATCH] net: wireless: handle vendor rx event allocation
+
+Bug 200183359
+
+Change-Id: Ic21dca83bdd1b32d87e0b197be68b7f7ac039ae1
+Signed-off-by: Narayan Reddy <narayanr@nvidia.com>
+Reviewed-on: http://git-master/r/1139477
+(cherry picked from commit a523bd96e1ed08d4ee7b7413629300551197ee2a)
+Reviewed-on: https://git-master.nvidia.com/r/1962267
+(cherry picked from commit 55ec17c2ddc8ed486ee0d15a1693ee7b30ec634a)
+Reviewed-on: https://git-master.nvidia.com/r/1972626
+GVS: Gerrit_Virtual_Submit
+Reviewed-by: Srinivas Ramachandran <srinivasra@nvidia.com>
+Tested-by: Srinivas Ramachandran <srinivasra@nvidia.com>
+Reviewed-by: Ashutosh Jha <ajha@nvidia.com>
+Reviewed-by: mobile promotions <svcmobile_promotions@nvidia.com>
+Tested-by: mobile promotions <svcmobile_promotions@nvidia.com>
+---
+ include/net/cfg80211.h | 15 ++++++++
+ net/wireless/nl80211.c | 81 ++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 96 insertions(+)
+
+diff --git a/include/net/cfg80211.h b/include/net/cfg80211.h
+index 9d57639223c3..1edbb9f331a5 100644
+--- a/include/net/cfg80211.h
++++ b/include/net/cfg80211.h
+@@ -4729,6 +4729,13 @@ struct sk_buff *__cfg80211_alloc_reply_skb(struct wiphy *wiphy,
+ 					   enum nl80211_attrs attr,
+ 					   int approxlen);
+ 
++struct sk_buff *__cfg80211_alloc_event_net_skb(struct net_device *ndev,
++					   struct wiphy *wiphy,
++					   enum nl80211_commands cmd,
++					   enum nl80211_attrs attr,
++					   int vendor_event_idx,
++					   int approxlen, gfp_t gfp);
++
+ struct sk_buff *__cfg80211_alloc_event_skb(struct wiphy *wiphy,
+ 					   struct wireless_dev *wdev,
+ 					   enum nl80211_commands cmd,
+@@ -4812,6 +4819,14 @@ cfg80211_vendor_event_alloc(struct wiphy *wiphy, struct wireless_dev *wdev,
+ 					  event_idx, approxlen, gfp);
+ }
+ 
++static inline struct sk_buff *
++cfg80211_vendor_event_skb_alloc(struct net_device *ndev, struct wiphy *wiphy, int approxlen,
++			    int event_idx, gfp_t gfp)
++{
++	return __cfg80211_alloc_event_net_skb(ndev, wiphy, NL80211_CMD_VENDOR,
++					  NL80211_ATTR_VENDOR_DATA,
++					  event_idx, approxlen, gfp);
++}
+ /**
+  * cfg80211_vendor_event - send the event
+  * @skb: The skb, must have been allocated with cfg80211_vendor_event_alloc()
+diff --git a/net/wireless/nl80211.c b/net/wireless/nl80211.c
+index 549d0a4083b3..636aeba4c806 100644
+--- a/net/wireless/nl80211.c
++++ b/net/wireless/nl80211.c
+@@ -8328,6 +8328,55 @@ static int nl80211_set_mcast_rate(struct sk_buff *skb, struct genl_info *info)
+ 	return err;
+ }
+ 
++static struct sk_buff *
++__cfg80211_alloc_vendor_net_skb(struct net_device *ndev,
++			    struct cfg80211_registered_device *rdev,
++			    int approxlen, u32 portid, u32 seq,
++			    enum nl80211_commands cmd,
++			    enum nl80211_attrs attr,
++			    const struct nl80211_vendor_cmd_info *info,
++			    gfp_t gfp)
++{
++	struct sk_buff *skb;
++	void *hdr;
++	struct nlattr *data;
++
++	skb = nlmsg_new(approxlen + 100, gfp);
++	if (!skb)
++		return NULL;
++
++	hdr = nl80211hdr_put(skb, portid, seq, 0, cmd);
++	if (!hdr) {
++		kfree_skb(skb);
++		return NULL;
++	}
++
++	if (nla_put_u32(skb, NL80211_ATTR_WIPHY, rdev->wiphy_idx))
++		goto nla_put_failure;
++
++	if (info) {
++		if (nla_put_u32(skb, NL80211_ATTR_VENDOR_ID,
++				info->vendor_id))
++			goto nla_put_failure;
++		if (nla_put_u32(skb, NL80211_ATTR_VENDOR_SUBCMD,
++				info->subcmd))
++			goto nla_put_failure;
++	}
++
++	nla_put_u32(skb, NL80211_ATTR_IFINDEX, ndev->ifindex);
++
++	data = nla_nest_start(skb, attr);
++
++	((void **)skb->cb)[0] = rdev;
++	((void **)skb->cb)[1] = hdr;
++	((void **)skb->cb)[2] = data;
++
++	return skb;
++
++ nla_put_failure:
++	kfree_skb(skb);
++	return NULL;
++}
+ static struct sk_buff *
+ __cfg80211_alloc_vendor_skb(struct cfg80211_registered_device *rdev,
+ 			    struct wireless_dev *wdev, int approxlen,
+@@ -8387,6 +8436,38 @@ __cfg80211_alloc_vendor_skb(struct cfg80211_registered_device *rdev,
+ 	return NULL;
+ }
+ 
++struct sk_buff *__cfg80211_alloc_event_net_skb(struct net_device *ndev,
++					   struct wiphy *wiphy,
++					   enum nl80211_commands cmd,
++					   enum nl80211_attrs attr,
++					   int vendor_event_idx,
++					   int approxlen, gfp_t gfp)
++{
++	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
++	const struct nl80211_vendor_cmd_info *info;
++
++	switch (cmd) {
++	case NL80211_CMD_TESTMODE:
++		if (WARN_ON(vendor_event_idx != -1))
++			return NULL;
++		info = NULL;
++		break;
++	case NL80211_CMD_VENDOR:
++		if (WARN_ON(vendor_event_idx < 0 ||
++			    vendor_event_idx >= wiphy->n_vendor_events))
++			return NULL;
++		info = &wiphy->vendor_events[vendor_event_idx];
++		break;
++	default:
++		WARN_ON(1);
++		return NULL;
++	}
++
++	return __cfg80211_alloc_vendor_net_skb(ndev, rdev, approxlen, 0, 0,
++					   cmd, attr, info, gfp);
++}
++EXPORT_SYMBOL(__cfg80211_alloc_event_net_skb);
++
+ struct sk_buff *__cfg80211_alloc_event_skb(struct wiphy *wiphy,
+ 					   struct wireless_dev *wdev,
+ 					   enum nl80211_commands cmd,

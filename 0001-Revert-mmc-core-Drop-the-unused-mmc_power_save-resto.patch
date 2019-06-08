@@ -1,0 +1,113 @@
+From 03cc52f68e952740b5a4031bd136be536c7fbc68 Mon Sep 17 00:00:00 2001
+From: Artyom Bambalov <bambalov@arcsinus.ru>
+Date: Sat, 8 Jun 2019 21:37:35 +0300
+Subject: [PATCH] Revert "mmc: core: Drop the unused
+ mmc_power_save|restore_host()"
+
+This reverts commit 29772f8a73d88a5de648177d9d822055ab7d1ba6.
+---
+ drivers/mmc/core/core.c  | 46 ++++++++++++++++++++++++++++++++++++++++
+ drivers/mmc/core/core.h  |  2 ++
+ drivers/mmc/core/sdio.c  |  1 +
+ include/linux/mmc/host.h |  3 +++
+ 4 files changed, 52 insertions(+)
+
+diff --git a/drivers/mmc/core/core.c b/drivers/mmc/core/core.c
+index 6db36dc870b5..08436ffdfb40 100644
+--- a/drivers/mmc/core/core.c
++++ b/drivers/mmc/core/core.c
+@@ -2395,6 +2395,52 @@ void mmc_stop_host(struct mmc_host *host)
+ 	mmc_release_host(host);
+ }
+ 
++int mmc_power_save_host(struct mmc_host *host)
++{
++	int ret = 0;
++
++	pr_debug("%s: %s: powering down\n", mmc_hostname(host), __func__);
++
++	mmc_bus_get(host);
++
++	if (!host->bus_ops || host->bus_dead) {
++		mmc_bus_put(host);
++		return -EINVAL;
++	}
++
++	if (host->bus_ops->power_save)
++		ret = host->bus_ops->power_save(host);
++
++	mmc_bus_put(host);
++
++	mmc_power_off(host);
++
++	return ret;
++}
++EXPORT_SYMBOL(mmc_power_save_host);
++
++int mmc_power_restore_host(struct mmc_host *host)
++{
++	int ret;
++
++	pr_debug("%s: %s: powering up\n", mmc_hostname(host), __func__);
++
++	mmc_bus_get(host);
++
++	if (!host->bus_ops || host->bus_dead) {
++		mmc_bus_put(host);
++		return -EINVAL;
++	}
++
++	mmc_power_up(host, host->card->ocr);
++	ret = host->bus_ops->power_restore(host);
++
++	mmc_bus_put(host);
++
++	return ret;
++}
++EXPORT_SYMBOL(mmc_power_restore_host);
++
+ #ifdef CONFIG_PM_SLEEP
+ /* Do the card removal on suspend if card is assumed removeable
+  * Do that in pm notifier while userspace isn't yet frozen, so we will be able
+diff --git a/drivers/mmc/core/core.h b/drivers/mmc/core/core.h
+index b5083b13d594..eb88ec7d45ec 100644
+--- a/drivers/mmc/core/core.h
++++ b/drivers/mmc/core/core.h
+@@ -28,6 +28,8 @@ struct mmc_bus_ops {
+ 	int (*resume)(struct mmc_host *);
+ 	int (*runtime_suspend)(struct mmc_host *);
+ 	int (*runtime_resume)(struct mmc_host *);
++	int (*power_save)(struct mmc_host *);
++	int (*power_restore)(struct mmc_host *);
+ 	int (*alive)(struct mmc_host *);
+ 	int (*shutdown)(struct mmc_host *);
+ 	int (*hw_reset)(struct mmc_host *);
+diff --git a/drivers/mmc/core/sdio.c b/drivers/mmc/core/sdio.c
+index 6718fc8bb40f..2d6f8584cc7a 100644
+--- a/drivers/mmc/core/sdio.c
++++ b/drivers/mmc/core/sdio.c
+@@ -1083,6 +1083,7 @@ static const struct mmc_bus_ops mmc_sdio_ops = {
+ 	.resume = mmc_sdio_resume,
+ 	.runtime_suspend = mmc_sdio_runtime_suspend,
+ 	.runtime_resume = mmc_sdio_runtime_resume,
++	.power_restore = mmc_sdio_power_restore,
+ 	.alive = mmc_sdio_alive,
+ 	.hw_reset = mmc_sdio_hw_reset,
+ 	.sw_reset = mmc_sdio_sw_reset,
+diff --git a/include/linux/mmc/host.h b/include/linux/mmc/host.h
+index 43d0f0c496f6..2ec8c46f50e2 100644
+--- a/include/linux/mmc/host.h
++++ b/include/linux/mmc/host.h
+@@ -489,6 +489,9 @@ static inline struct mmc_host *mmc_from_priv(void *priv)
+ #define mmc_classdev(x)	(&(x)->class_dev)
+ #define mmc_hostname(x)	(dev_name(&(x)->class_dev))
+ 
++int mmc_power_save_host(struct mmc_host *host);
++int mmc_power_restore_host(struct mmc_host *host);
++
+ void mmc_detect_change(struct mmc_host *, unsigned long delay);
+ void mmc_request_done(struct mmc_host *, struct mmc_request *);
+ void mmc_command_done(struct mmc_host *host, struct mmc_request *mrq);
+-- 
+2.20.1
+
